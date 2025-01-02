@@ -1,14 +1,14 @@
 from flask import Flask, jsonify, request
 from apscheduler.schedulers.background import BackgroundScheduler
+from datetime import timedelta
 import renderer
 
 app = Flask(__name__)
 
 # Initialize scheduler
 scheduler = BackgroundScheduler()
-
-# Schedule the task to run every 1 hour (3600 seconds)
 scheduler.add_job(renderer.render_image, 'interval', hours=1)
+scheduler.start()
 
 @app.route("/")
 def hello():
