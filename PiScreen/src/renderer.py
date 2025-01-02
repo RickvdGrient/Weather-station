@@ -7,19 +7,16 @@ import json
 width, height, offset = 648, 480, 0
 image_size = 64
 
-# Weather Data
 temperature = "N/A"
 humidity = "N/A"
 received_temp_time = datetime.now()
-temp_min = "N/A"
-temp_max = "N/A"
 
-# font_large = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 48)
-# font_medium = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 24)
-# font_small = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 18)
-font_large = ImageFont.truetype('C:/Windows/Fonts/arial.ttf', 48)
-font_medium = ImageFont.truetype('C:/Windows/Fonts/arial.ttf', 24)
-font_small = ImageFont.truetype('C:/Windows/Fonts/arial.ttf', 18)
+font_large = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 48)
+font_medium = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 24)
+font_small = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 18)
+# font_large = ImageFont.truetype('C:/Windows/Fonts/arial.ttf', 48)
+# font_medium = ImageFont.truetype('C:/Windows/Fonts/arial.ttf', 24)
+# font_small = ImageFont.truetype('C:/Windows/Fonts/arial.ttf', 18)
 
 
 def render_image():
@@ -132,5 +129,4 @@ def draw_hourly_forecast(draw, forecast_data):
 def current_weather_recent(prev_time):
     return prev_time > datetime.now() - timedelta(hours=1)
 
-#todo comment
-render_image()
+# render_image()
