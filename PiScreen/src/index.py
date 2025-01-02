@@ -24,4 +24,5 @@ def get_temperature():
 	return jsonify({ "status": 200})
 
 if __name__ == "__main__":
+	renderer.render_image()
 	app.run(host='192.168.50.69', port=5000, debug=False)

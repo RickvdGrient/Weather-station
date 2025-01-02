@@ -48,8 +48,9 @@ def draw_current_weather(draw, forecast_data):
         temperature = forecast_data["current"]["temp"]
         humidity = forecast_data["current"]["humidity"]
 
-    draw.text((image_size + 10, 10), f"{temperature}°C", font=font_large, fill=0)
-    draw.text((image_size + 10, 100), f"{humidity}%", font=font_medium, fill=0)
+    temperature = round(temperature, 1)
+    draw.text((image_size, 10), f"{temperature}°C", font=font_large, fill=0)
+    draw.text((image_size, 100), f"{humidity}%", font=font_medium, fill=0)
 
     # draw.rectangle((width / 2 + 5, height / 2, width - 5 , height - 5 ), outline=0, width=2)
     # draw.rectangle((5, height / 2, width / 2 - 5, height - 5), outline=0, width=2)
@@ -71,15 +72,15 @@ def draw_5_day_forecast(draw, forecast_data):
         temp_min = round(data_point["temp"]["min"])
         temp_max = round(data_point["temp"]["max"])
         day_temp_range = f"{temp_max}°C / {temp_min}°C"
-        
+
         # Get the day of the week and day of the month
         day_of_week = timestamp.strftime("%a")  # Abbreviated day of the week (Mon, Tue, etc.)
         day_of_month = timestamp.strftime('%d')  # Day of the month (e.g., 8, 9, etc.)
         day_label = f"{day_of_week} {day_of_month}"
 
         # Render the day label and temperature range
-        draw.text((start_x, start_y + i * 30), f"{day_label}", font=font_small, fill=0)
-        draw.text((start_x + 70, start_y + i * 30), f"{day_temp_range}", font=font_small, fill=0)
+        draw.text((start_x - 50, start_y + i * 30), f"{day_label}", font=font_small, fill=0)
+        draw.text((start_x + 50, start_y + i * 30), f"{day_temp_range}", font=font_small, fill=0)
 
         # Fetch the description of the first forecast entry for that day
         description = data_point["weather"][0]["description"]
@@ -89,8 +90,8 @@ def draw_5_day_forecast(draw, forecast_data):
 def draw_hourly_forecast(draw, forecast_data):
     graph_height = height // 1.5
     graph_width = width - offset
-    max_points = 12
-    step_x = graph_width / max_points + 2  # Space between points (12 points = 11 intervals)
+    max_points = 10
+    step_x = graph_width / max_points - 1  # Space between points (12 points = 11 intervals)
 
     # Extract temperatures and timestamps
     temperatures = [round(hour["temp"]) for hour in forecast_data["hourly"][1::2][:max_points]]  # Round temperature values
