@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import json
 
 # Set up the display resolution
-width, height, offset = 648, 480, 0
+width, height, offset = 648, 480, 40
 image_size = 64
 
 temperature = "N/A"
