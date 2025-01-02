@@ -1,6 +1,5 @@
 from flask import Flask, jsonify, request
 from apscheduler.schedulers.background import BackgroundScheduler
-from datetime import timedelta
 import renderer
 
 app = Flask(__name__)
