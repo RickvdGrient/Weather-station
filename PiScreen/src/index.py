@@ -1,13 +1,8 @@
 from flask import Flask, jsonify, request
-from apscheduler.schedulers.background import BackgroundScheduler
 import renderer
+import sys
 
 app = Flask(__name__)
-
-# Initialize scheduler
-scheduler = BackgroundScheduler()
-scheduler.add_job(renderer.render_image, 'interval', hours=1)
-scheduler.start()
 
 @app.route("/")
 def hello():
@@ -22,6 +17,11 @@ def get_temperature():
 	
 	return jsonify({ "status": 200})
 
-if __name__ == "__main__":
+def call_renderer():
 	renderer.render_image()
+
+if __name__ == "__main__":
+	if len(sys.argv) > 1 and sys.argv[1] == "run":
+		call_renderer()
+
 	app.run(host='192.168.50.69', port=5000, debug=False)
