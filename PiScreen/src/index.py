@@ -1,8 +1,11 @@
 from flask import Flask, jsonify, request
 import renderer
-import sys
+import threading
+import time
 
 app = Flask(__name__)
+
+data_lock = threading.Lock()
 
 @app.route("/")
 def hello():
@@ -11,17 +14,24 @@ def hello():
 
 @app.route("/update-sensor", methods=['GET'])
 def get_temperature():
-	renderer.temperature = request.args.get('temperature')
-	renderer.humidity = request.args.get('humidity')
-	renderer.received_temp_time = datetime.now()
+	with data_lock:
+		renderer.temperature = request.args.get('temperature')
+		renderer.humidity = request.args.get('humidity')
+		renderer.received_temp_time = datetime.now()
 	
 	return jsonify({ "status": 200})
 
-def call_renderer():
-	renderer.render_image()
+def start_hourly_task():
+    """Runs the run() function every hour in the same process."""
+    def task():
+        while True:
+            run()
+            time.sleep(3600)  # Wait for 1 hour before running again
+    thread = threading.Thread(target=task, daemon=True)
+    thread.start()
+
 
 if __name__ == "__main__":
-	if len(sys.argv) > 1 and sys.argv[1] == "run":
-		call_renderer()
+	start_hourly_task()
 
 	app.run(host='192.168.50.69', port=5000, debug=False)
