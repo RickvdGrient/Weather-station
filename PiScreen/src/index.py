@@ -25,7 +25,7 @@ def start_hourly_task():
     """Runs the run() function every hour in the same process."""
     def task():
         while True:
-            run()
+            renderer.render_image()
             time.sleep(3600)  # Wait for 1 hour before running again
     thread = threading.Thread(target=task, daemon=True)
     thread.start()
