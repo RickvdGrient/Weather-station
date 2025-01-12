@@ -41,9 +41,11 @@ def forecast_renderer(draw):
     draw_5_day_forecast(draw, forecast_data)
 
 
-def draw_current_weather(draw, forecast_data, temperature, humidity):
+def draw_current_weather(draw, forecast_data):
     if current_weather_recent(received_temp_time) == False:
+        global temperature 
         temperature = forecast_data["current"]["temp"]
+        global humidity
         humidity = forecast_data["current"]["humidity"]
 
     temperature = round(temperature, 1)
