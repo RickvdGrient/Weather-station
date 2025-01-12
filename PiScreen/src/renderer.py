@@ -1,7 +1,6 @@
 from PIL import Image, ImageDraw, ImageFont
 import e_ink, api
 from datetime import datetime, timedelta
-import json
 
 # Set up the display resolution
 width, height, offset = 648, 480, 40
@@ -50,9 +49,9 @@ def forecast_renderer(draw, temperature, humidity):
 
 def draw_current_weather(draw, forecast_data, temperature, humidity):
     """Safely draw current weather while updating temperature and humidity."""
-    if not current_weather_recent(received_temp_time):
-        temperature = forecast_data["current"]["temp"]
-        humidity = forecast_data["current"]["humidity"]
+    if not current_weather_recent(received_temp_time) or temperature == 99:
+        temperature = float(forecast_data["current"]["temp"])
+        humidity = float(forecast_data["current"]["humidity"])
 
     temperature = round(temperature, 1)
     draw.text((image_size, 10), f"{temperature}°C", font=font_large, fill=0)
@@ -85,7 +84,7 @@ def draw_5_day_forecast(draw, forecast_data):
 def draw_hourly_forecast(draw, forecast_data):
     graph_height = height // 1.5
     graph_width = width - offset
-    max_points = 10
+    max_points = 8
     step_x = graph_width / max_points - 1
 
     temperatures = [round(hour["temp"]) for hour in forecast_data["hourly"][1::2][:max_points]]
