@@ -42,7 +42,7 @@ def forecast_renderer(draw):
 
 
 def draw_current_weather(draw, forecast_data):
-    if current_weather_recent(received_temp_time) == False:
+    if current_weather_recent(received_temp_time) == False or temperature == 99:
         global temperature 
         temperature = forecast_data["current"]["temp"]
         global humidity
