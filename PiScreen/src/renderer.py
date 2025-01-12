@@ -7,8 +7,10 @@ import json
 width, height, offset = 648, 480, 40
 image_size = 64
 
+global temperature
 temperature = 99
-humidity = 99
+global humidity
+humidity = -1
 received_temp_time = datetime.now()
 
 font_large = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 48)
@@ -43,9 +45,7 @@ def forecast_renderer(draw):
 
 def draw_current_weather(draw, forecast_data):
     if current_weather_recent(received_temp_time) == False or temperature == 99:
-        global temperature 
         temperature = forecast_data["current"]["temp"]
-        global humidity
         humidity = forecast_data["current"]["humidity"]
 
     temperature = round(temperature, 1)
