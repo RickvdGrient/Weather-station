@@ -1,6 +1,7 @@
 from PIL import Image, ImageDraw, ImageFont
 import e_ink, api
 from datetime import datetime, timedelta
+import requests
 
 # Set up the display resolution
 width, height, offset = 648, 480, 40
