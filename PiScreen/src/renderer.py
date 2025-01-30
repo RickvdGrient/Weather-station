@@ -22,18 +22,12 @@ font_small = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bol
 # font_small = ImageFont.truetype('C:/Windows/Fonts/arial.ttf', 18)
 
 def render_image():
-    global temperature, humidity
+    global temperature, humidity, image
     image = Image.new('1', (width, height), 255)
     draw = ImageDraw.Draw(image)
 
     # Pass temperature and humidity as arguments and receive updated values
     temperature, humidity = forecast_renderer(draw, temperature, humidity)
-
-    try:
-        icon = Image.open("../icons/cloudy.png").resize((image_size, image_size)).convert('1')  
-        image.paste(icon, (5, 5))
-    except FileNotFoundError:
-        print("Weather icon not found. Skipping icon display.")
 
     e_ink.display_image(image)
 
