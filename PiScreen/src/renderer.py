@@ -2,10 +2,11 @@ from PIL import Image, ImageDraw, ImageFont
 import e_ink, api
 from datetime import datetime, timedelta
 import requests
+import weather_icon
 
 # Set up the display resolution
 width, height, offset = 648, 480, 40
-image_size = 64
+image_size = 40
 
 # Initialize global variables
 temperature = 99
@@ -83,10 +84,16 @@ def draw_5_day_forecast(draw, forecast_data):
         day_of_month = timestamp.strftime('%d')
         day_label = f"{day_of_week} {day_of_month}"
 
-        draw.text((start_x - 50, start_y + i * 30), f"{day_label}", font=font_small, fill=0)
-        draw.text((start_x + 50, start_y + i * 30), f"{day_temp_range}", font=font_small, fill=0)
-        description = data_point["weather"][0]["description"]
-        draw.text((start_x + 160, start_y + i * 30), f"{description}", font=font_small, fill=0)
+        # Get weather description & fetch icon
+        weather_condition = data_point["weather"][0]["description"]  # OpenWeatherMap's icon code
+        icon = weather_icon.fetch_image(weather_condition)
+
+        # Draw text and icon
+        draw.text((start_x - offset, start_y + i * offset), day_label, font=font_small, fill=0)
+        draw.text((start_x + offset, start_y + i * offset), day_temp_range, font=font_small, fill=0)
+
+        if icon:
+            image.paste(icon, (start_x + 150, start_y + i * offset))
 
 
 def draw_hourly_forecast(draw, forecast_data):
