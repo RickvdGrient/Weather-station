@@ -52,7 +52,7 @@ def forecast_renderer(draw, temperature, humidity):
 
 def draw_current_weather(draw, forecast_data, temperature, humidity):
     """Safely draw current weather while updating temperature and humidity."""
-    if not current_weather_recent(received_temp_time) or temperature == 99:
+    if not is_current_weather_recent(received_temp_time) or temperature == 99:
         temperature = float(forecast_data["current"]["temp"])
         humidity = float(forecast_data["current"]["humidity"])
 
