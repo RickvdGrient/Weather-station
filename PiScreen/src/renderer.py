@@ -63,10 +63,10 @@ def draw_current_weather(draw, forecast_data, temperature, humidity):
 
 
 def draw_5_day_forecast(draw, forecast_data):
-    forecast_width = width // 2
+    forecast_width = width / 4
     forecast_height = height // 4
-    start_x = width - forecast_width - offset
-    start_y = offset
+    start_x = width - 180
+    start_y = 10
     limit_days = 5
 
     for i, data_point in enumerate(forecast_data["daily"][:limit_days]):
