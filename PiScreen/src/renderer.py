@@ -79,7 +79,7 @@ def draw_5_day_forecast(draw, forecast_data):
         day_label = f"{day_of_week} {day_of_month}"
 
         # Get weather description & fetch icon
-        weather_condition = data_point["weather"][0]["description"]  # OpenWeatherMap's icon code
+        weather_condition = data_point["weather"][0]["icon"]  # OpenWeatherMap's icon code
         icon = weather_icon.fetch_image(weather_condition)
 
         # Draw text and icon
