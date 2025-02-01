@@ -10,7 +10,8 @@ def fetch_image(weather_condition):
 
     try:
         icon = Image.open(icon_path).resize((image_size, image_size)).convert('1')
-        return icon
     except FileNotFoundError:
-        print(f"Weather icon not found: {icon_path}. Skipping icon display.")
-        return None
+        icon_path = os.path.join(script_dir, "..", "icons", "not_found.png")
+        icon = Image.open(icon_path).resize((image_size, image_size)).convert('1')
+
+    return icon
