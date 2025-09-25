@@ -30,6 +30,7 @@ def render_image():
     temperature, humidity = forecast_renderer(draw, temperature, humidity)
 
     e_ink.display_image(image)
+    # image.save("weather_output.png")
 
 
 def forecast_renderer(draw, temperature, humidity):
@@ -56,15 +57,21 @@ def draw_current_weather(draw, forecast_data, temperature, humidity):
         temperature = float(forecast_data["current"]["temp"])
         humidity = float(forecast_data["current"]["humidity"])
 
+    icon = weather_icon.fetch_image(forecast_data["current"]["weather"][0]["icon"])
+    icon_x = image_size
+    icon_y = 10
+
+    if icon:
+        icon = icon.resize((icon.width * 2, icon.height * 2), Image.LANCZOS)
+        image.paste(icon, (icon_x, icon_y))
+
     temperature = round(temperature, 1)
-    draw.text((image_size, 10), f"{temperature}°C", font=font_large, fill=0)
+    draw.text((image_size * 2.5, 10), f"{temperature}°C", font=font_large, fill=0)
     draw.text((image_size, 100), f"{humidity}%", font=font_medium, fill=0)
     return temperature, humidity
 
 
 def draw_5_day_forecast(draw, forecast_data):
-    forecast_width = width / 4
-    forecast_height = height // 4
     start_x = width - 180
     start_y = 10
     limit_days = 5
