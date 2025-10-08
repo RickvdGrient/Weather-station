@@ -14,6 +14,7 @@ humidity = -1
 received_temp_time = datetime.now()
 
 # Fonts
+font_extra_large = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 70)
 font_large = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 48)
 font_medium = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 24)
 font_small = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 18)
@@ -66,8 +67,7 @@ def draw_current_weather(draw, forecast_data, temperature, humidity):
         image.paste(icon, (icon_x, icon_y))
 
     temperature = round(temperature, 1)
-    draw.text((image_size * 2.5, 10), f"{temperature}°C", font=font_large, fill=0)
-    draw.text((image_size, 100), f"{humidity}%", font=font_medium, fill=0)
+    draw.text((image_size * 2.5, 10), f"{temperature}°C", font=font_extra_large, fill=0)
     return temperature, humidity
 
 
