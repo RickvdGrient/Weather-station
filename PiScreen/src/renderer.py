@@ -59,11 +59,11 @@ def draw_current_weather(draw, forecast_data, temperature, humidity):
         humidity = float(forecast_data["current"]["humidity"])
 
     icon = weather_icon.fetch_image(forecast_data["current"]["weather"][0]["icon"])
-    icon_x = image_size * 1.5
+    icon_x = image_size
     icon_y = 10
 
     if icon:
-        icon = icon.resize((icon.width * 2, icon.height * 2), Image.LANCZOS)
+        icon = icon.resize((icon.width * 3, icon.height * 3), Image.LANCZOS)
         image.paste(icon, (icon_x, icon_y))
 
     temperature = round(temperature, 1)
