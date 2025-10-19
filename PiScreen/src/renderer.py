@@ -37,17 +37,19 @@ def render_image():
 def forecast_renderer(draw, temperature, humidity):
     try:
         forecast_data = api.request_weather_forecast()
-        
-        # Update temperature and humidity based on recent data
-        temperature, humidity = draw_current_weather(draw, forecast_data, temperature, humidity)
-        draw_hourly_forecast(draw, forecast_data)
-        draw_5_day_forecast(draw, forecast_data)
 
     except requests.exceptions.ConnectionError:
         print("Error: Unable to get weather service")
+        draw.text(40, "No Internet", font=font_extra_large, fill=0)
 
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
+        draw.text(40, "Unkown error occured", font=font_extra_large, fill=0)
+
+    # Update temperature and humidity based on recent data
+    temperature, humidity = draw_current_weather(draw, forecast_data, temperature, humidity)
+    draw_hourly_forecast(draw, forecast_data)
+    draw_5_day_forecast(draw, forecast_data)
 
     return temperature, humidity
 
