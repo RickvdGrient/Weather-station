@@ -8,7 +8,6 @@ from PIL import Image, ImageDraw, ImageFont
 
 import api
 import e_ink
-import sensor
 import weather_icon
 
 log = logging.getLogger(__name__)
@@ -44,9 +43,10 @@ _render_lock = threading.Lock()  # never draw two frames at once
 # Partial refresh: after this many partial updates wait for the next full refresh
 # (partial updates build up ghosting; the hourly full refresh clears it)
 MAX_PARTIALS = int(os.environ.get("WEATHER_MAX_PARTIALS", 20))
-LEFT_BLOCK = (0, 0, RIGHT_COL_X - 16, DIVIDER_Y - 2)  # area that shows live sensor data
+LEFT_BLOCK = (0, 0, RIGHT_COL_X - 16, DIVIDER_Y - 2)  # block that gets redrawn on a partial refresh
 
-_state = {"image": None, "forecast": None, "shown": None, "partials": 0}
+_state = {"image": None, "shown": None, "partials": 0}
+
 
 
 def _font(size):
@@ -99,39 +99,39 @@ def render_image():
         except Exception:
             log.exception("Could not display the image")
 
-        _state.update(
-            image=image,
-            forecast=forecast if forecast is not None and not forecast.stale else None,
-            shown=shown, partials=0,
-        )
+        # Partial refreshes only make sense on top of a frame with fresh (not cached) data
+        fresh = forecast is not None and not forecast.stale
+        _state.update(image=image if fresh else None, shown=shown if fresh else None, partials=0)
         return ok
 
 
 def partial_update():
-    """Redraw the live (sensor) block if its values changed. Returns True if shown."""
+    """Fetch fresh weather and redraw the top-left block if it changed. True if shown."""
     with _render_lock:
-        forecast, shown = _state["forecast"], _state["shown"]
-        if forecast is None or shown is None or _state["image"] is None:
-            return False  # nothing drawn yet, or we are showing offline/cached data
+        if _state["image"] is None or _state["shown"] is None:
+            return False  # nothing fresh on screen to build on (first run or offline)
         if _state["partials"] >= MAX_PARTIALS:
             return False
-        reading = sensor.latest()
-        if reading is None:
+        try:
+            forecast = api.get_forecast(retries=1)
+        except Exception as e:
+            log.warning("Partial update skipped: %s", e)
             return False
-        if round(reading[0], 1) == shown[0] and round(reading[1]) == shown[1]:
-            return False  # nothing visible would change
+        if forecast.stale:
+            return False
 
         image = _state["image"].copy()
         draw = ImageDraw.Draw(image)
         draw.rectangle(LEFT_BLOCK, fill=255)
         new_shown = _safely(draw_current_weather, image, draw, forecast.data, forecast)
-        if new_shown is None:
-            return False
+        if new_shown is None or new_shown == _state["shown"]:
+            return False  # nothing visible would change
         if not e_ink.display_partial(image):
             return False
         _state.update(image=image, shown=new_shown, partials=_state["partials"] + 1)
         log.info("Partial refresh %d/%d: %s", _state["partials"], MAX_PARTIALS, new_shown)
         return True
+
 
 
 def _safely(fn, *args):
@@ -172,10 +172,8 @@ def draw_error(draw, title, detail):
 def draw_current_weather(image, draw, data, forecast):
     current = data["current"]
 
-    # Prefer the local sensor when it reported within the last hour
-    reading = sensor.latest()
-    temperature = reading[0] if reading else float(current["temp"])
-    humidity = reading[1] if reading else current.get("humidity")
+    temperature = float(current["temp"])
+    humidity = current.get("humidity")
 
     icon = weather_icon.fetch_image(current["weather"][0]["icon"], size=72)
     if icon:
@@ -209,7 +207,12 @@ def draw_current_weather(image, draw, data, forecast):
         note = f"{TEXT['updated']} {datetime.fromtimestamp(forecast.fetched_at).strftime('%H:%M')}"
     draw.text((MARGIN, DIVIDER_Y - 20), note, font=font_tiny, fill=0)
 
-    return (round(temperature, 1), round(float(humidity)) if humidity is not None else None)
+    # What is visible in this block; used to skip partial refreshes that would change nothing
+    return (
+        round(temperature, 1), description,
+        round(current.get("feels_like", temperature)), round(current.get("wind_speed", 0) * 3.6),
+        round(float(humidity)) if humidity is not None else None,
+    )
 
 
 def draw_5_day_forecast(image, draw, days):
