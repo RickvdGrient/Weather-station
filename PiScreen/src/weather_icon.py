@@ -1,17 +1,26 @@
-import os
+import logging
+from functools import lru_cache
+from pathlib import Path
+
 from PIL import Image
 
+log = logging.getLogger(__name__)
+
+ICON_DIR = Path(__file__).resolve().parent.parent / "icons"
 image_size = 24
 
-def fetch_image(weather_condition):
-    """Fetch weather icon image based on condition and return resized image."""
-    script_dir = os.path.dirname(os.path.abspath(__file__))  # Get the script's directory
-    icon_path = os.path.join(script_dir, "..", "icons", f"{weather_condition}.png")  # Correct relative path
 
-    try:
-        icon = Image.open(icon_path).resize((image_size, image_size)).convert('1')
-    except FileNotFoundError:
-        icon_path = os.path.join(script_dir, "..", "icons", "not_found.png")
-        icon = Image.open(icon_path).resize((image_size, image_size)).convert('1')
+@lru_cache(maxsize=None)
+def _load(name, size):
+    return Image.open(ICON_DIR / f"{name}.png").resize((size, size)).convert("1")
 
-    return icon
+
+def fetch_image(weather_condition, size=image_size):
+    """Return the (cached) 1-bit icon for an OpenWeather icon code, or None."""
+    for name in (weather_condition, "not_found"):
+        try:
+            return _load(name, size)
+        except (FileNotFoundError, OSError):
+            continue
+    log.warning("No icon found for %r and no not_found.png", weather_condition)
+    return None

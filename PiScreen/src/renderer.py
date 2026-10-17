@@ -1,134 +1,270 @@
+import logging
+import os
+import threading
+import time
+from datetime import datetime
+
 from PIL import Image, ImageDraw, ImageFont
-import e_ink, api
-from datetime import datetime, timedelta
-import requests
+
+import api
+import e_ink
+import sensor
 import weather_icon
 
-# Set up the display resolution
-width, height, offset = 648, 480, 40
-image_size = 40
+log = logging.getLogger(__name__)
 
-# Initialize global variables
-temperature = 99
-humidity = -1
-received_temp_time = datetime.now()
+# Display resolution
+width, height = 648, 480
 
-# Fonts
-font_extra_large = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 64)
-font_large = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 48)
-font_medium = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 24)
-font_small = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 18)
-# font_large = ImageFont.truetype('C:/Windows/Fonts/arial.ttf', 48)
-# font_medium = ImageFont.truetype('C:/Windows/Fonts/arial.ttf', 24)
-# font_small = ImageFont.truetype('C:/Windows/Fonts/arial.ttf', 18)
+# Layout (all in pixels)
+MARGIN = 20
+RIGHT_COL_X = 424          # 5-day forecast column
+DIVIDER_Y = 212            # line between the top block and the hourly chart
+CHART_X0, CHART_X1 = 44, 604
+TEMP_TOP, TEMP_BOTTOM = 245, 370   # vertical range of the temperature line
+RAIN_BASE, RAIN_MAX = 424, 36      # baseline and max height of the rain bars
+
+LANG = os.environ.get("WEATHER_LANG", "en")
+TEXT = {
+    "en": {"today": "Today", "feels": "Feels like", "wind": "Wind", "humidity": "Humidity",
+           "days": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+           "offline": "Offline - last update", "updated": "Updated"},
+    "nl": {"today": "Vandaag", "feels": "Voelt als", "wind": "Wind", "humidity": "Vocht",
+           "days": ["Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"],
+           "offline": "Offline - laatste update", "updated": "Bijgewerkt"},
+}.get(LANG, None) or {}
+if not TEXT:
+    LANG = "en"
+    TEXT = {"today": "Today", "feels": "Feels like", "wind": "Wind", "humidity": "Humidity",
+            "days": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+            "offline": "Offline - last update", "updated": "Updated"}
+
+_render_lock = threading.Lock()  # never draw two frames at once
+
+# Partial refresh: after this many partial updates wait for the next full refresh
+# (partial updates build up ghosting; the hourly full refresh clears it)
+MAX_PARTIALS = int(os.environ.get("WEATHER_MAX_PARTIALS", 20))
+LEFT_BLOCK = (0, 0, RIGHT_COL_X - 16, DIVIDER_Y - 2)  # area that shows live sensor data
+
+_state = {"image": None, "forecast": None, "shown": None, "partials": 0}
+
+
+def _font(size):
+    for path in (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "C:/Windows/Fonts/arialbd.ttf",
+    ):
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+font_extra_large = _font(64)
+font_medium = _font(24)
+font_small = _font(18)
+font_tiny = _font(14)
+
+
+# ---------------------------------------------------------------- main entry
 
 def render_image():
-    global temperature, humidity, image
-    image = Image.new('1', (width, height), 255)
-    draw = ImageDraw.Draw(image)
+    """Fetch data, draw one frame and push it to the display. Never raises."""
+    with _render_lock:
+        image = Image.new("1", (width, height), 255)
+        draw = ImageDraw.Draw(image)
+        ok = False
+        forecast = shown = None
 
-    # Pass temperature and humidity as arguments and receive updated values
-    temperature, humidity = forecast_renderer(draw, temperature, humidity)
+        try:
+            forecast = api.get_forecast()
+        except api.WeatherUnavailable as e:
+            log.error("No weather data available: %s", e)
+            draw_error(draw, "No internet", "No recent weather data available")
+        except Exception:
+            log.exception("Unexpected error while fetching the forecast")
+            draw_error(draw, "Error", "Unexpected error, see the log")
+        else:
+            ok = not forecast.stale
+            data = forecast.data
+            draw.line((RIGHT_COL_X - 12, 12, RIGHT_COL_X - 12, DIVIDER_Y - 14), fill=0)
+            draw.line((MARGIN, DIVIDER_Y, width - MARGIN, DIVIDER_Y), fill=0)
+            shown = _safely(draw_current_weather, image, draw, data, forecast)
+            _safely(draw_5_day_forecast, image, draw, _upcoming(data.get("daily", []), forecast.stale, 12 * 3600))
+            _safely(draw_hourly_forecast, draw, _upcoming(data.get("hourly", []), forecast.stale, 3600))
 
-    e_ink.display_image(image)
-    # image.save("weather_output.png")
+        try:
+            e_ink.display_image(image)
+        except Exception:
+            log.exception("Could not display the image")
+
+        _state.update(
+            image=image,
+            forecast=forecast if forecast is not None and not forecast.stale else None,
+            shown=shown, partials=0,
+        )
+        return ok
 
 
-def forecast_renderer(draw, temperature, humidity):
+def partial_update():
+    """Redraw the live (sensor) block if its values changed. Returns True if shown."""
+    with _render_lock:
+        forecast, shown = _state["forecast"], _state["shown"]
+        if forecast is None or shown is None or _state["image"] is None:
+            return False  # nothing drawn yet, or we are showing offline/cached data
+        if _state["partials"] >= MAX_PARTIALS:
+            return False
+        reading = sensor.latest()
+        if reading is None:
+            return False
+        if round(reading[0], 1) == shown[0] and round(reading[1]) == shown[1]:
+            return False  # nothing visible would change
+
+        image = _state["image"].copy()
+        draw = ImageDraw.Draw(image)
+        draw.rectangle(LEFT_BLOCK, fill=255)
+        new_shown = _safely(draw_current_weather, image, draw, forecast.data, forecast)
+        if new_shown is None:
+            return False
+        if not e_ink.display_partial(image):
+            return False
+        _state.update(image=image, shown=new_shown, partials=_state["partials"] + 1)
+        log.info("Partial refresh %d/%d: %s", _state["partials"], MAX_PARTIALS, new_shown)
+        return True
+
+
+def _safely(fn, *args):
+    """Run one drawing step; a bad field in one section must not blank the rest."""
     try:
-        forecast_data = api.request_weather_forecast()
-
-    except requests.exceptions.ConnectionError:
-        print("Error: Unable to get weather service")
-        draw.text(40, "No Internet", font=font_extra_large, fill=0)
-
-    except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-        draw.text(40, "Unkown error occured", font=font_extra_large, fill=0)
-
-    # Update temperature and humidity based on recent data
-    temperature, humidity = draw_current_weather(draw, forecast_data, temperature, humidity)
-    draw_hourly_forecast(draw, forecast_data)
-    draw_5_day_forecast(draw, forecast_data)
-
-    return temperature, humidity
+        return fn(*args)
+    except Exception:
+        log.exception("Failed to draw %s", fn.__name__)
+        return None
 
 
-def draw_current_weather(draw, forecast_data, temperature, humidity):
-    """Safely draw current weather while updating temperature and humidity."""
-    if not is_current_weather_recent(received_temp_time) or temperature == 99:
-        temperature = float(forecast_data["current"]["temp"])
-        humidity = float(forecast_data["current"]["humidity"])
+def _upcoming(entries, stale, grace):
+    """Drop entries that are already in the past (only matters for cached data)."""
+    if not stale:
+        return entries
+    cutoff = time.time() - grace
+    return [e for e in entries if e["dt"] > cutoff]
 
-    icon = weather_icon.fetch_image(forecast_data["current"]["weather"][0]["icon"])
-    icon_x = image_size
-    icon_y = 10
 
+def _hm(ts):
+    return datetime.fromtimestamp(ts).strftime("%H:%M")
+
+
+def _centered(draw, x, y, text, font):
+    """Draw text centered on x, clamped so it never leaves the screen."""
+    w = draw.textlength(text, font=font)
+    draw.text((min(max(x - w / 2, 2), width - w - 2), y), text, font=font, fill=0)
+
+
+# ------------------------------------------------------------------- sections
+
+def draw_error(draw, title, detail):
+    draw.text((MARGIN * 2, 40), title, font=font_extra_large, fill=0)
+    draw.text((MARGIN * 2, 130), detail, font=font_medium, fill=0)
+    draw.text((MARGIN * 2, 170), datetime.now().strftime("Tried at %H:%M"), font=font_small, fill=0)
+
+
+def draw_current_weather(image, draw, data, forecast):
+    current = data["current"]
+
+    # Prefer the local sensor when it reported within the last hour
+    reading = sensor.latest()
+    temperature = reading[0] if reading else float(current["temp"])
+    humidity = reading[1] if reading else current.get("humidity")
+
+    icon = weather_icon.fetch_image(current["weather"][0]["icon"], size=72)
     if icon:
-        icon = icon.resize((icon.width * 3, icon.height * 3), Image.LANCZOS)
-        image.paste(icon, (icon_x, icon_y))
+        image.paste(icon, (MARGIN, 8))
+    draw.text((MARGIN + 84, 4), f"{round(temperature, 1)}°C", font=font_extra_large, fill=0)
 
-    temperature = round(temperature, 1)
-    draw.text((image_size * 2.5, 10), f"{temperature}°C", font=font_extra_large, fill=0)
-    return temperature, humidity
+    description = current["weather"][0].get("description", "").capitalize()
+    draw.text((MARGIN, 80), description, font=font_medium, fill=0)
+
+    # Detail lines (every field is optional so a missing one just disappears)
+    lines = []
+    parts = []
+    if "feels_like" in current:
+        parts.append(f"{TEXT['feels']} {round(current['feels_like'])}°C")
+    if "wind_speed" in current:
+        parts.append(f"{TEXT['wind']} {round(current['wind_speed'] * 3.6)} km/h")
+    lines.append("   ".join(parts))
+    if humidity is not None:
+        lines.append(f"{TEXT['humidity']} {round(float(humidity))}%")
+    if "sunrise" in current and "sunset" in current:
+        lines.append(f"↑ {_hm(current['sunrise'])}   ↓ {_hm(current['sunset'])}")
+
+    y = 112
+    for line in filter(None, lines):
+        draw.text((MARGIN, y), line, font=font_small, fill=0)
+        y += 24
+
+    if forecast.stale:
+        note = f"{TEXT['offline']} {datetime.fromtimestamp(forecast.fetched_at).strftime('%d %b %H:%M')}"
+    else:
+        note = f"{TEXT['updated']} {datetime.fromtimestamp(forecast.fetched_at).strftime('%H:%M')}"
+    draw.text((MARGIN, DIVIDER_Y - 20), note, font=font_tiny, fill=0)
+
+    return (round(temperature, 1), round(float(humidity)) if humidity is not None else None)
 
 
-def draw_5_day_forecast(draw, forecast_data):
-    start_x = width - 180
-    start_y = 10
-    limit_days = 5
+def draw_5_day_forecast(image, draw, days):
+    row_h, start_y = 38, 12
+    today = datetime.now().date()
 
-    for i, data_point in enumerate(forecast_data["daily"][:limit_days]):
-        timestamp = datetime.fromtimestamp(data_point["dt"])
-        temp_min = round(data_point["temp"]["min"])
-        temp_max = round(data_point["temp"]["max"])
-        day_temp_range = f"{temp_max}°C / {temp_min}°C"
-        day_of_week = timestamp.strftime("%a")
-        day_of_month = timestamp.strftime('%d')
-        day_label = f"{day_of_week} {day_of_month}"
+    for i, day in enumerate(days[:5]):
+        stamp = datetime.fromtimestamp(day["dt"])
+        y = start_y + i * row_h
+        label = TEXT["today"] if stamp.date() == today else f"{TEXT['days'][stamp.weekday()]} {stamp.day}"
+        hi, lo = round(day["temp"]["max"]), round(day["temp"]["min"])
 
-        # Get weather description & fetch icon
-        weather_condition = data_point["weather"][0]["icon"]  # OpenWeatherMap's icon code
-        icon = weather_icon.fetch_image(weather_condition)
-
-        # Draw text and icon
-        draw.text((start_x - offset, start_y + i * offset), day_label, font=font_small, fill=0)
-        draw.text((start_x + offset, start_y + i * offset), day_temp_range, font=font_small, fill=0)
-
+        draw.text((RIGHT_COL_X, y + 3), label, font=font_small, fill=0)
+        icon = weather_icon.fetch_image(day["weather"][0]["icon"], size=28)
         if icon:
-            image.paste(icon, (start_x + 150, start_y + i * offset))
+            image.paste(icon, (RIGHT_COL_X + 96, y))
+        draw.text((RIGHT_COL_X + 130, y + 3), f"{hi}°/{lo}°", font=font_small, fill=0)
 
 
-def draw_hourly_forecast(draw, forecast_data):
-    graph_height = height // 1.5
-    graph_width = width - offset
-    max_points = 8
-    step_x = graph_width / max_points - 1
+def draw_hourly_forecast(draw, hours):
+    selected = hours[1::2][:8]  # every 2nd hour, next 16 hours
+    if len(selected) < 2:
+        return
 
-    temperatures = [round(hour["temp"]) for hour in forecast_data["hourly"][1::2][:max_points]]
-    timestamps = [datetime.fromtimestamp(hour["dt"]).strftime("%H:%M") 
-                  for hour in forecast_data["hourly"][1::2][:max_points]]
+    temps = [round(h["temp"]) for h in selected]
+    lo, hi = min(temps) - 1, max(temps) + 1
+    step = (CHART_X1 - CHART_X0) / (len(selected) - 1)
 
-    temp_min = min(temperatures) - 2
-    temp_max = max(temperatures) + 2
-    normalize = lambda temp: height - int(((temp - temp_min) / (temp_max - temp_min)) * graph_height)
+    def y_of(temp):
+        return TEMP_BOTTOM - (temp - lo) / (hi - lo) * (TEMP_BOTTOM - TEMP_TOP)
 
-    for i, temp in enumerate(temperatures):
-        x = offset + i * step_x
-        y = normalize(temp)
-        draw.ellipse((x - 3, y - 3, x + 3, y + 3), fill=0)
-        draw.text((x - 15, height - 30), timestamps[i], font=font_small, fill=0)
-        draw.text((x - 10, y - 20), f"{temp}°C", font=font_small, fill=0)
+    draw.line((MARGIN, RAIN_BASE, width - MARGIN, RAIN_BASE), fill=0)
 
-        if i < len(temperatures) - 1:
-            next_x = offset + (i + 1) * step_x
-            next_y = normalize(temperatures[i + 1])
-            draw.line((x, y, next_x, next_y), fill=0, width=1)
+    points = [(CHART_X0 + i * step, y_of(t)) for i, t in enumerate(temps)]
+    draw.line(points, fill=0, width=2)
+
+    for i, (hour, temp) in enumerate(zip(selected, temps)):
+        x, y = points[i]
+        draw.ellipse((x - 4, y - 4, x + 4, y + 4), fill=255, outline=0, width=2)
+        _centered(draw, x, y - 27, f"{temp}°", font_small)
+
+        # Rain chance: hatched bar growing up from the baseline
+        pop = max(0.0, min(1.0, float(hour.get("pop", 0))))
+        bar_h = round(pop * RAIN_MAX)
+        if bar_h >= 2:
+            left, right = x - 11, x + 11
+            draw.rectangle((left, RAIN_BASE - bar_h, right, RAIN_BASE - 1), outline=0)
+            for yy in range(RAIN_BASE - bar_h + 2, RAIN_BASE - 1, 3):
+                draw.line((left + 1, yy, right - 1, yy), fill=0)
+
+        _centered(draw, x, RAIN_BASE + 6, _hm(hour["dt"]), font_small)
+        if pop >= 0.1:
+            _centered(draw, x, RAIN_BASE + 28, f"{round(pop * 100)}%", font_tiny)
 
 
-def is_current_weather_recent(prev_time):
-    """Check if the temperature data is recent."""
-    return prev_time > datetime.now() - timedelta(hours=1)
-
-# Uncomment to test the rendering directly
-# render_image()
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    render_image()
